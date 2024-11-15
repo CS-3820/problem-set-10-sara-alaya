@@ -108,7 +108,10 @@ subst x m (Var y)
   | otherwise = Var y
 subst x m (Lam y n) = Lam y (substUnder x m y n)
 subst x m (App n1 n2) = App (subst x m n1) (subst x m n2)
-subst x m n = undefined
+subst x m (Store n) = Store (subst x m n)
+subst _ _ Recall = Recall
+subst x m (Throw n) = Throw (subst x m n)
+subst x m (Catch n1 y n2) = Catch (subst x m n1) y (substUnder x m y n2) 
 
 {-------------------------------------------------------------------------------
 
@@ -202,7 +205,25 @@ bubble; this won't *just* be `Throw` and `Catch.
 -------------------------------------------------------------------------------}
 
 smallStep :: (Expr, Expr) -> Maybe (Expr, Expr)
-smallStep = undefined
+smallStep (Plus (Const v1) (Const v2), acc) = Just (Const (v1 + v2), acc)
+smallStep (Plus (Const v) n, acc) = fmap (\(n', acc') -> (Plus (Const v) n', acc')) (smallStep (n, acc))
+smallStep (Plus n1 n2, acc) = fmap (\(n1', acc') -> (Plus n1' n2, acc')) (smallStep (n1, acc))
+smallStep (App (Lam x n) v, acc) | isValue v = Just (subst x v n, acc)
+smallStep (App m n, acc)
+  | isValue m = fmap (\(n', acc') -> (App m n', acc')) (smallStep (n, acc))
+  | otherwise = fmap (\(m', acc') -> (App m' n, acc')) (smallStep (m, acc))
+smallStep (Store (Const v), _) = Just (Recall, Const v)
+smallStep (Store m, acc) = fmap (\(m', acc') -> (Store m', acc')) (smallStep (m, acc))
+smallStep (Recall, acc) = Just (acc, acc)
+smallStep (Throw (Const v), acc) = Just (Throw (Const v), acc)
+smallStep (Throw m, acc) = fmap (\(m', acc') -> (Throw m', acc')) (smallStep (m, acc))
+smallStep (Plus (Const v) (Throw ex), acc) = Just (Throw ex, acc)
+smallStep (Plus m1 (Throw ex), acc) = Just (Throw ex, acc)
+smallStep (Catch (Throw (Const v)) y n, acc) = Just (subst y (Const v) n, acc)
+smallStep (Catch m y n, acc)
+  | isValue m = Just (m, acc)
+  | otherwise = fmap (\(m', acc') -> (Catch m' y n, acc')) (smallStep (m, acc))
+smallStep _ = Nothing
 
 steps :: (Expr, Expr) -> [(Expr, Expr)]
 steps s = case smallStep s of
